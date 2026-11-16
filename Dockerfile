@@ -1,7 +1,3 @@
-FROM ollama/ollama:latest
+FROM lscr.io/linuxserver/qbittorrent:latest
 
-# Expose the default Ollama port
-EXPOSE 11434
-
-# Set the default command to run Ollama server
-CMD ["serve"]
+EXPOSE 8080 6881 6881/udp

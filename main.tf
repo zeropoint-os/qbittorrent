@@ -9,11 +9,11 @@ terraform {
 
 variable "zp_module_id" {
   type        = string
-  default     = "ollama"
+  default     = "qbittorrent"
   description = "Unique identifier for this module instance (user-defined, freeform)"
 }
 
- variable "zp_network_name" {
+variable "zp_network_name" {
   type        = string
   description = "Pre-created Docker network name for this module (managed by zeropoint)"
 }
@@ -27,84 +27,91 @@ variable "zp_arch" {
 variable "zp_gpu_vendor" {
   type        = string
   default     = ""
-  description = "GPU vendor - nvidia, amd, intel, or empty for no GPU (injected by zeropoint)"
+  description = "GPU vendor - unused by this module (injected by zeropoint)"
 }
 
 variable "zp_module_dir" {
   type        = string
-  description = "Agent's working directory for this module (injected by zeropoint). Terraform state and the cloned source live here. Users may edit this — the agent moves the directory atomically."
+  description = "Agent's working directory for this module (injected by zeropoint)"
 }
 
 variable "zp_storage_dir" {
   type        = string
-  description = "Isolated data root for this module (injected by zeropoint). All bind mounts MUST be under this path so the agent can move user data when zp_storage_dir is edited (atomic same-fs, rsync-and-swap cross-fs)."
+  description = "Isolated data root for this module; all bind mounts must live under this path"
 }
 
-# Build Ollama image from local Dockerfile
-resource "docker_image" "ollama" {
+resource "docker_image" "qbittorrent" {
   name = "${var.zp_module_id}:latest"
   build {
     context    = path.module
     dockerfile = "Dockerfile"
-    platform   = "linux/${var.zp_arch}"  # Uses injected zp_arch variable
+    platform   = "linux/${var.zp_arch}"
   }
   keep_locally = true
 }
 
-# Main Ollama container (no host port binding)
-resource "docker_container" "ollama_main" {
+resource "docker_container" "qbittorrent_main" {
   name  = "${var.zp_module_id}-main"
-  image = docker_image.ollama.image_id
+  image = docker_image.qbittorrent.image_id
 
-  # Network configuration (provided by zeropoint)
   networks_advanced {
     name = var.zp_network_name
   }
 
-  # Restart policy
   restart = "unless-stopped"
 
-  # GPU access (conditional based on vendor)
-  runtime = var.zp_gpu_vendor == "nvidia" ? "nvidia" : null
-  gpus    = var.zp_gpu_vendor != "" ? "all" : null
-
-  # Environment variables
   env = [
-    "OLLAMA_HOST=0.0.0.0",
+    "PUID=1000",
+    "PGID=1000",
+    "TZ=Etc/UTC",
+    "WEBUI_PORT=8080",
+    "TORRENTING_PORT=6881",
   ]
 
-  # Persistent storage
   volumes {
-    host_path      = "${var.zp_storage_dir}/.ollama"
-    container_path = "/root/.ollama"
+    host_path      = "${var.zp_storage_dir}/config"
+    container_path = "/config"
   }
 
-  # Ports exposed internally (no host binding)
-  # Port 11434 is accessible via service discovery (DNS)
+  volumes {
+    host_path      = "${var.zp_storage_dir}/downloads"
+    container_path = "/downloads"
+  }
 }
 
-# Outputs for zeropoint (container resource only)
 output "main" {
-  value       = docker_container.ollama_main
-  description = "Main Ollama container"
+  value       = docker_container.qbittorrent_main
+  description = "Main qBittorrent container"
 }
 
-# Service ports for external access (defined but not bound to host)
 output "main_ports" {
   value = {
-    api = {
-      port        = 11434                   # Ollama API port
-      protocol    = "http"                  # The protocol used
-      transport   = "tcp"                   # Transport layer
-      description = "Ollama API endpoint"   # Description of the port
-      default     = true                    # Default port for the service
+    webui = {
+      port        = 8080
+      protocol    = "http"
+      transport   = "tcp"
+      description = "qBittorrent web interface"
+      default     = true
+    }
+    torrent_tcp = {
+      port        = 6881
+      protocol    = "tcp"
+      transport   = "tcp"
+      description = "BitTorrent peer connections over TCP"
+      default     = false
+    }
+    torrent_udp = {
+      port        = 6881
+      protocol    = "udp"
+      transport   = "udp"
+      description = "BitTorrent peer connections and DHT over UDP"
+      default     = false
     }
   }
   description = "Service ports for external access"
 }
 
-# Ollama API URL for easy consumption by other modules
-output "ollama_api_url" {
-  value       = "http://${docker_container.ollama_main.name}:11434"
-  description = "Ollama API URL accessible via Docker network"
+output "webui_url" {
+  value       = "http://${docker_container.qbittorrent_main.name}:8080"
+  description = "qBittorrent web interface URL accessible via Docker network"
 }

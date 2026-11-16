@@ -1,88 +1,60 @@
-# Ollama zeropoint app
+# qBittorrent Zeropoint module
 
-This module defines the Ollama app for zeropoint os using Terraform and the Docker provider.
-
-## Resources Created
-
-- **Docker Image**: Builds from local `Dockerfile` with platform-specific targeting
-- **Docker Container**: Ollama server with optional GPU support
+This module runs qBittorrent in a Docker container managed by Zeropoint using Terraform and the Docker provider.
 
 ## Requirements
 
 - Terraform >= 1.0
 - Docker provider ~> 3.0
-- GPU support (optional):
-  - NVIDIA: NVIDIA Container Runtime
-  - AMD: ROCm drivers
-  - Intel: Intel GPU drivers
+- Docker with support for the requested target architecture
 
 ## Usage
 
-### Via zeropoint API
+### Via Zeropoint API
 
 ```bash
 curl -X POST http://<zeropoint-node-name>:2370/modules/install \
   -H "Content-Type: application/json" \
   -d '{
-    "source": "https://github.com/zeropoint-os/ollama.git", 
-    "module_id": "ollama",
-    "arch": "arm64",
-    "gpu_vendor": "nvidia"
+    "source": "https://github.com/zeropoint-os/qbittorrent.git",
+    "module_id": "qbittorrent",
+    "arch": "arm64"
   }'
 ```
 
-### Manual (for testing)
+### Manual testing
 
-Use Run task (Shift+Alt+T)
-1. Full test - setup and apply
-2. Full test - cleanup
+Use the VS Code tasks (Shift+Alt+T):
 
-The install will be performed using Docker-in-Docker.
+1. **Full Test: Setup and Apply**
+2. **Test: Run qBittorrent Test Script**
+3. **Full Test: Cleanup**
+
+The test tasks run with Docker-in-Docker.
 
 ## Inputs
 
 | Name | Type | Description | Default |
 |------|------|-------------|---------|
-| `zp_app_id` | string | Unique identifier for this app instance (injected by zeropoint) | `"ollama"` |
-| `zp_network_name` | string | Pre-created Docker network name (injected by zeropoint) | (required) |
-| `zp_arch` | string | Target architecture: amd64, arm64, etc. (injected by zeropoint) | `"amd64"` |
-| `zp_gpu_vendor` | string | GPU vendor: nvidia, amd, intel, or empty for no GPU (injected by zeropoint) | `""` |
-| `zp_module_dir` | string | Agent's working directory for this module — terraform state + cloned source (injected by zeropoint) | (required) |
-| `zp_storage_dir` | string | Isolated data root for this module — all bind mounts must live under here (injected by zeropoint) | (required) |
+| `zp_module_id` | string | Unique identifier for this module instance | `"qbittorrent"` |
+| `zp_network_name` | string | Pre-created Docker network name (injected by Zeropoint) | (required) |
+| `zp_arch` | string | Target architecture, such as `amd64` or `arm64` | `"amd64"` |
+| `zp_gpu_vendor` | string | Unused GPU vendor value retained for Zeropoint compatibility | `""` |
+| `zp_module_dir` | string | Module working directory supplied by Zeropoint | (required) |
+| `zp_storage_dir` | string | Isolated data root for persistent module data | (required) |
 
-## Outputs
+## Storage
 
-| Name | Description |
-|------|-------------|
-| `main` | Main Ollama container resource (docker_container) |
+The module stores qBittorrent configuration in `${zp_storage_dir}/config` and downloaded files in `${zp_storage_dir}/downloads`. Both bind mounts remain under the module's isolated storage root.
 
-## GPU Support
+## Network and service discovery
 
-This module supports multiple GPU vendors:
+The container joins the pre-created network supplied through `zp_network_name`, with no host ports bound directly by this module. Other containers can reach qBittorrent at `${zp_module_id}-main`.
 
-- **NVIDIA**: Sets `runtime = "nvidia"` and `gpus = "all"`
-- **AMD/Intel**: Sets `gpus = "all"` (uses default runtime with device access)
-- **No GPU**: Both runtime and gpus set to null (CPU-only mode)
+| Service | Port | Transport | Description |
+|---------|------|-----------|-------------|
+| Web UI | 8080 | TCP | HTTP web interface |
+| BitTorrent | 6881 | TCP | Peer connections |
+| BitTorrent | 6881 | UDP | Peer connections and DHT |
 
-The GPU vendor is auto-detected by zeropoint and injected via the `gpu_vendor` variable.
-
-## Network & Service Discovery
-
-- **Internal Port**: 11434 (Ollama API)
-- **Network**: Uses pre-created network provided by zeropoint via `zp_network_name`
-- **No Host Ports**: Service discovery via DNS only
-- **Container Name**: `${zp_module_id}-main` (e.g., `ollama-main`)
-
-## Accessing Ollama
-
-### From Other Containers (Service Discovery)
-
-Other apps linked to Ollama can access it via DNS:
-
-```bash
-curl http://ollama-main:11434/api/tags
-```
-
-### From Host (via Exposure)
-
-External access requires creating an exposure through zeropoint API.
+The Web UI URL from another container is `http://qbittorrent-main:8080/` when using the default module ID. The image may generate a temporary Web UI password; check container logs for the current login instructions and change the password after signing in.

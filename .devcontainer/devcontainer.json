@@ -1,5 +1,5 @@
 {
-	"name": "ollama",
+	"name": "qbittorrent",
 	"build": {
 		"dockerfile": "dev.Dockerfile",
 		"context": ".."
