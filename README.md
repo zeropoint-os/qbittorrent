@@ -45,7 +45,7 @@ The test tasks run with Docker-in-Docker.
 
 ## Storage
 
-The module stores qBittorrent configuration in `${zp_storage_dir}/config` and downloaded files in `${zp_storage_dir}/downloads`. Both bind mounts remain under the module's isolated storage root.
+The module persists qBittorrent configuration in `${zp_storage_dir}/config`. Choose the download destination in qBittorrent's Web UI; this module does not impose a downloads directory.
 
 ## Network and service discovery
 

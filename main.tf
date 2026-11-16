@@ -72,11 +72,6 @@ resource "docker_container" "qbittorrent_main" {
     host_path      = "${var.zp_storage_dir}/config"
     container_path = "/config"
   }
-
-  volumes {
-    host_path      = "${var.zp_storage_dir}/downloads"
-    container_path = "/downloads"
-  }
 }
 
 output "main" {
