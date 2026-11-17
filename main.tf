@@ -15,38 +15,74 @@ variable "zp_module_id" {
 
 variable "zp_network_name" {
   type        = string
-  description = "Pre-created Docker network name for this module (managed by zeropoint)"
+  description = "Pre-created Docker network name for this module (managed by Zeropoint)"
 }
 
 variable "zp_arch" {
   type        = string
   default     = "amd64"
-  description = "Target architecture - amd64, arm64, etc. (injected by zeropoint)"
+  description = "Target architecture - amd64, arm64, etc. (injected by Zeropoint)"
 }
 
 variable "zp_gpu_vendor" {
   type        = string
   default     = ""
-  description = "GPU vendor - unused by this module (injected by zeropoint)"
+  description = "GPU vendor - unused by this module (injected by Zeropoint)"
 }
 
 variable "zp_module_dir" {
   type        = string
-  description = "Agent's working directory for this module (injected by zeropoint)"
+  description = "Agent working directory for this module (injected by Zeropoint)"
 }
 
 variable "zp_storage_dir" {
   type        = string
-  description = "Isolated data root for this module; all bind mounts must live under this path"
+  description = "Isolated data root for this module (injected by Zeropoint)"
+}
+
+variable "media_path" {
+  type        = string
+  default     = null
+  nullable    = true
+  description = "Optional host path mounted read-write at /media; defaults to zp_storage_dir/downloads"
+}
+
+variable "puid" {
+  type        = number
+  default     = 1000
+  description = "LinuxServer container user ID"
+}
+
+variable "pgid" {
+  type        = number
+  default     = 1000
+  description = "LinuxServer container group ID"
+}
+
+variable "timezone" {
+  type        = string
+  default     = "Etc/UTC"
+  description = "Container timezone in TZ database format"
+}
+
+variable "torrenting_port" {
+  type        = number
+  default     = 6881
+  description = "Stable host and container port for inbound BitTorrent TCP and UDP traffic"
+
+  validation {
+    condition     = var.torrenting_port >= 1 && var.torrenting_port <= 65535
+    error_message = "torrenting_port must be between 1 and 65535."
+  }
+}
+
+locals {
+  media_path = var.media_path != null ? var.media_path : "${var.zp_storage_dir}/downloads"
 }
 
 resource "docker_image" "qbittorrent" {
-  name = "${var.zp_module_id}:latest"
-  build {
-    context    = path.module
-    dockerfile = "Dockerfile"
-    platform   = "linux/${var.zp_arch}"
-  }
+  name         = "lscr.io/linuxserver/qbittorrent:5.3.0@sha256:3d4c4545d51a690a0df15a2ff99038823a88a9822df8e794526447b9afbd7384"
+  platform     = "linux/${var.zp_arch}"
   keep_locally = true
 }
 
@@ -61,16 +97,35 @@ resource "docker_container" "qbittorrent_main" {
   restart = "unless-stopped"
 
   env = [
-    "PUID=1000",
-    "PGID=1000",
-    "TZ=Etc/UTC",
+    "PUID=${var.puid}",
+    "PGID=${var.pgid}",
+    "TZ=${var.timezone}",
     "WEBUI_PORT=8080",
-    "TORRENTING_PORT=6881",
+    "TORRENTING_PORT=${var.torrenting_port}",
   ]
 
   volumes {
     host_path      = "${var.zp_storage_dir}/config"
     container_path = "/config"
+    read_only      = false
+  }
+
+  volumes {
+    host_path      = local.media_path
+    container_path = "/media"
+    read_only      = false
+  }
+
+  ports {
+    internal = var.torrenting_port
+    external = var.torrenting_port
+    protocol = "udp"
+  }
+
+  ports {
+    internal = var.torrenting_port
+    external = var.torrenting_port
+    protocol = "tcp"
   }
 }
 
@@ -88,22 +143,8 @@ output "main_ports" {
       description = "qBittorrent web interface"
       default     = true
     }
-    torrent_tcp = {
-      port        = 6881
-      protocol    = "tcp"
-      transport   = "tcp"
-      description = "BitTorrent peer connections over TCP"
-      default     = false
-    }
-    torrent_udp = {
-      port        = 6881
-      protocol    = "udp"
-      transport   = "udp"
-      description = "BitTorrent peer connections and DHT over UDP"
-      default     = false
-    }
   }
-  description = "Service ports for external access"
+  description = "Web UI service exposed through Zeropoint"
 }
 
 output "webui_url" {
