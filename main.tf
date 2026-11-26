@@ -65,6 +65,12 @@ variable "timezone" {
   description = "Container timezone in TZ database format"
 }
 
+variable "webui_auth_enabled" {
+  type        = bool
+  default     = true
+  description = "Require qBittorrent Web UI authentication; disable only behind a trusted Zeropoint ingress/access layer"
+}
+
 variable "torrenting_port" {
   type        = number
   default     = 6881
@@ -78,6 +84,73 @@ variable "torrenting_port" {
 
 locals {
   media_path = var.media_path != null ? var.media_path : "${var.zp_storage_dir}/downloads"
+
+  webui_auth_init_script = <<-EOT
+    #!/usr/bin/with-contenv bash
+    set -euo pipefail
+
+    config_file=/config/qBittorrent/qBittorrent.conf
+
+    set_webui_setting() {
+      local key="$1"
+      local value="$2"
+      local temp_file
+      temp_file="$(mktemp "$config_file.XXXXXX")"
+
+      KEY="$key" VALUE="$value" awk '
+        BEGIN {
+          key = ENVIRON["KEY"]
+          value = ENVIRON["VALUE"]
+          in_webui = 0
+          found = 0
+        }
+        /^\[WebUI\]$/ {
+          in_webui = 1
+          print
+          next
+        }
+        /^\[/ {
+          if (in_webui && !found) {
+            print key "=" value
+            found = 1
+          }
+          in_webui = 0
+        }
+        {
+          if (in_webui && index($0, key "=") == 1) {
+            if (!found) {
+              print key "=" value
+              found = 1
+            }
+            next
+          }
+          print
+        }
+        END {
+          if (in_webui && !found) {
+            print key "=" value
+            found = 1
+          }
+          if (!found) {
+            print ""
+            print "[WebUI]"
+            print key "=" value
+          }
+        }
+      ' "$config_file" >"$temp_file"
+
+      chown --reference="$config_file" "$temp_file"
+      chmod --reference="$config_file" "$temp_file"
+      mv "$temp_file" "$config_file"
+    }
+
+    if [[ "${var.webui_auth_enabled}" == "true" ]]; then
+      set_webui_setting 'AuthSubnetWhitelistEnabled' 'false'
+    else
+      set_webui_setting 'AuthSubnetWhitelist' '0.0.0.0/0, ::/0'
+      set_webui_setting 'AuthSubnetWhitelistEnabled' 'true'
+    fi
+  EOT
 }
 
 resource "docker_image" "qbittorrent" {
@@ -114,6 +187,12 @@ resource "docker_container" "qbittorrent_main" {
     host_path      = local.media_path
     container_path = "/media"
     read_only      = false
+  }
+
+  upload {
+    content    = local.webui_auth_init_script
+    file       = "/custom-cont-init.d/10-webui-auth.sh"
+    executable = true
   }
 
   ports {

@@ -23,7 +23,8 @@ curl -X POST http://<zeropoint-node-name>:2370/api/modules \
       "puid": 1000,
       "pgid": 1000,
       "timezone": "Etc/UTC",
-      "torrenting_port": 6881
+      "torrenting_port": 6881,
+      "webui_auth_enabled": true
     },
     "resolve": true
   }'
@@ -43,6 +44,7 @@ curl -X POST http://<zeropoint-node-name>:2370/api/modules \
 | `puid` | number | LinuxServer container user ID | `1000` |
 | `pgid` | number | LinuxServer container group ID | `1000` |
 | `timezone` | string | Container timezone in TZ database format | `"Etc/UTC"` |
+| `webui_auth_enabled` | bool | Require qBittorrent Web UI authentication | `true` |
 | `torrenting_port` | number | Stable inbound TCP and UDP peer port | `6881` |
 
 ## Storage
@@ -54,6 +56,8 @@ Set qBittorrent's default save path to a directory under `/media` in the Web UI.
 ## Network and service discovery
 
 The container joins `zp_network_name`. The Web UI remains unbound on the host and is advertised through `main_ports` for Zeropoint HTTP exposure. Other containers can reach it at `http://${zp_module_id}-main:8080`.
+
+`webui_auth_enabled` defaults to `true`, which sets `[WebUI] AuthSubnetWhitelistEnabled=false`. Setting it to `false` configures qBittorrent to bypass Web UI authentication for all IPv4 and IPv6 clients with `[WebUI] AuthSubnetWhitelist=0.0.0.0/0, ::/0` and `AuthSubnetWhitelistEnabled=true`. Use this only when a trusted Zeropoint ingress or access-control layer protects the Web UI. The absence of a host port binding does not isolate it from other containers: any container that can reach the module's Docker network may otherwise access qBittorrent without credentials.
 
 BitTorrent peer traffic bypasses the HTTP exposure path. The module binds `torrenting_port` directly on the Docker host for both TCP and UDP, using the same port inside and outside the container so the advertised listening port stays reachable. Only one module or host service can claim a given TCP/UDP port pair; choose a different `torrenting_port` when there is a conflict and allow that port through the host firewall or upstream NAT as needed.
 
@@ -67,4 +71,4 @@ Use the VS Code tasks (Shift+Alt+T) inside the development container:
 2. **Test: Run qBittorrent Test Script**
 3. **Full Test: Cleanup**
 
-The smoke test checks the Web UI, `/config` and `/media` mounts, TCP/UDP host bindings, and persistence across forced container recreation.
+The smoke test checks default authentication, explicit authentication bypass, forced recreation while bypassed, toggling authentication back on, preservation of unrelated qBittorrent preferences and persistent data, `/config` and `/media` mounts, TCP/UDP host bindings, and the absence of a host Web UI binding.
